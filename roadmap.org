@@ -1,0 +1,13 @@
+* DONE (6.4) 0.1, simple tcp server
+* TODO (6.4) 0.2, redis protocol implementation
+* TODO (6.4) 0.3, think about DHT or master-slave
+* TODO (6.5) 0.4, DHT implementation
+* TODO (6.6) 1.0, RELEASE
+* TODO (6.7) 0.1, pagerank implement
+* TODO (6.8) 0.2, think about pagerank RDB or redis RDB
+* TODO (6.9) 1.0, pagerank done!
+
+* TODO (6.10)
+  :PROPERTIES:
+  :Effort:
+  :END:
