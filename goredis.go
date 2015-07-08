@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"net"
 	"fmt"
 	"time"
@@ -8,10 +9,13 @@ import (
 	"github.com/tigeress/goredis/command"
 	"os"
 	"github.com/tigeress/goredis/client"
+	"github.com/golang/protobuf/proto"
+	"github.com/tigeress/goredis/protos"
 	"flag"
 	"bufio"
 	"strings"
 	"strconv"
+	"github.com/tigeress/goredis/servlet"
 )
 
 //把自己注册到dht中
@@ -24,6 +28,9 @@ var conns map[string]net.Conn
 var server string
 var ip string
 var port string
+
+var requestChannel chan *servlet.Servlet
+var responseChannel chan *servlet.Servlet
 func Init(){
 	//flags
 	flag.StringVar(&ip,"ip","localhost","server ip address")
@@ -49,7 +56,6 @@ func main(){
 	if flag.Args()[1]=="server" {
 		if flag.Args()[0]=="start" {
 			StartServer()
-	
 		}else if flag.Args()[0]=="stop" {
 			//quit <- 0
 		}
@@ -77,11 +83,17 @@ func main(){
 		fmt.Println("pagerank start: "+time.Now().Format("2006-01-02 15:04:05"))
 		client.PageRank()
 		fmt.Println("pagerank end: "+time.Now().Format("2006-01-02 15:04:05"))
-		time.Sleep(1000*time.Second)
+	}
+	if flag.Args()[1]=="test" {
+		client.TestClientProto()
 	}
 }
 
 func StartServer(){
+	go KVStore()
+	go ResponseThread()
+	requestChannel=make(chan *servlet.Servlet)
+	responseChannel=make(chan *servlet.Servlet)
 	kv = make(map[string]string)
 	keys=make(map[string]int)
 	ln,err:=net.Listen("tcp",server)
@@ -94,80 +106,158 @@ func StartServer(){
 		if err!=nil {
 			fmt.Println(err)
 		}
-		go HandleConnection(conn)
+		go ServletThread(conn)
 	}
-}
 
-func HandleConnection(conn net.Conn){
+}
+func ServletThread(conn net.Conn){
 	for {
-		var cmd *command.Command = command.DecodeRedisProtocol(conn)
-		if cmd == nil {
-			break
-		}
-		//fmt.Println("recv: "+ command.EncodeText(*cmd))
-		//通过key的第一部分来确定分区
-		if(cmd.Argc>1){
-			index:=strings.Index(cmd.Args[1],".")
-			if index==-1 {
-				cmd.PartitionKey=cmd.Args[1]
-			}else{
-				cmd.PartitionKey=cmd.Args[1][:index]
-			}
-			server,_:=c.Get(cmd.PartitionKey)
-			//fmt.Println("lookup node for key:"+cmd.PartitionKey+"->"+server)
-			if server!=hostname {
-				//fmt.Println("forward to another node!")
-				Send(server,command.EncodeRedisProtocol(*cmd))
-			}else{
-				DoCommand(conn,*cmd)
-			}
-		}else{
-			DoCommand(conn,*cmd)
+		err:=Server(conn)
+		if err!=nil {
+			return
 		}
 	}
-
 }
-func DoCommand(conn net.Conn,cmd command.Command){
-	if cmd.Args[0]=="set" {
-		kv[cmd.Args[1]]=cmd.Args[2]
-		keys[cmd.PartitionKey]=1;
-		conn.Write([]byte("succ\n"))
+func KVStore(){
+	var request *servlet.Servlet
+	for {
+		select {
+		case request= <- requestChannel:
+			//fmt.Println("receive:"+request.Command.String())
+			Execute(request)
+		}
 	}
-	if cmd.Args[0]=="get" {
-		value:=kv[cmd.Args[1]]
-		conn.Write([]byte(value+"\n"))
+}
+func ResponseThread(){
+	var response *servlet.Servlet
+	for{
+		select {
+		case response= <- responseChannel:
+			DoResponse(response)
+		}
 	}
-	if cmd.Args[0]=="remove" {
-		delete(kv,cmd.Args[0])
-		delete(keys,cmd.PartitionKey)
-		conn.Write([]byte("succ\n"))
+}
+func DoResponse(response *servlet.Servlet){
+	//fmt.Println("to write:"+response.Response.String())
+	responseBytes,_:=proto.Marshal(response.Response)
+	response.Conn.Write(responseBytes)
+}
+func Execute(req *servlet.Servlet){
+	request:=req.Command
+	if (request.Type.String()=="Get"){
+		value:=[]string{kv[*request.Key]}
+		response:=protos.Response{
+			Status:proto.Bool(true),
+			Value: value,
+		}
+		req.Response=&response
+		responseChannel <- req
 	}
-	if(cmd.Args[0]=="update"){
-		kv[cmd.Args[1]]=cmd.Args[2]
-		keys[cmd.PartitionKey]=1;
-		conn.Write([]byte("succ\n"))
+	if(request.Type.String()=="Set"){
+		partitionKey:=req.PartitionKey
+		keys[partitionKey]=1;
+		kv[*request.Key]=*request.Value
+		response:=protos.Response{
+			Status:proto.Bool(true),
+		}
+		req.Response=&response
+		responseChannel <- req
 	}
-	if(cmd.Args[0]=="iterate"){
+	if(request.Type.String()=="Add"){
+		partitionKey:=req.PartitionKey
+		keys[partitionKey]=1;
+		if kv[*request.Key]!=""&&kv[*request.Key]!="0"{
+			oper1,_:=strconv.ParseFloat(kv[*request.Key],32)
+			oper2,_:=strconv.ParseFloat(*request.Value,32)
+			sum:=oper1+oper2
+			kv[*request.Key]=strconv.FormatFloat(sum,'f',-1,32)
+		}else{
+			kv[*request.Key]=*request.Value
+		}
+		response:=protos.Response{
+			Status:proto.Bool(true),
+		}
+		req.Response=&response
+		responseChannel <- req
+	}
+	if(request.Type.String()=="Iterate"){
 		//一次取出所有的key吗？只取partitionKey
-		var result string=""
+		response:=protos.Response{
+			Status:proto.Bool(true),
+		}
+		var iterate []string
 		for k,_:=range keys{
 //			fmt.Println("key: "+k)
-			result=result+k+" "
+			iterate=append(iterate,k)
 		}
+		response.Value=iterate
 		//fmt.Println("result:"+result)
-		result=result[0:len(result)-1]
-		conn.Write([]byte(result+"\n"))
+		req.Response=&response
+		responseChannel <- req
 	}
-	if(cmd.Args[0]=="incr"){
-		if kv[cmd.Args[1]]=="" {
-			kv[cmd.Args[1]]="1"
+	if(request.Type.String()=="Flush"){
+		if kv["Flush"]!=""&&kv["Flush"]!="0"{
+			sum,_:=strconv.Atoi(kv["Flush"])
+			kv["Flush"]=strconv.Itoa(sum+1)
 		}else{
-			prev,_:=strconv.Atoi(kv[cmd.Args[1]])
-			kv[cmd.Args[1]]=strconv.Itoa(prev+1)
+			kv["Flush"]="1"
 		}
-		conn.Write([]byte("succ\n"))
+		if kv["Flush"]==strconv.Itoa(len(servers)) {
+			Accumulator()
+			kv["Flush"]="0"
+		}
+		response:=protos.Response{
+			Status:proto.Bool(true),
+		}
+		req.Response=&response
+		responseChannel <- req
 	}
 }
+func Accumulator(){
+	for k,_:=range keys{
+		preRank,_:=strconv.ParseFloat(kv[k+".rank"],32)
+		gradient,_:=strconv.ParseFloat(kv[k+".gradient"],32)
+		newRank:=0.15*preRank+0.85*gradient
+		kv[k+".rank"]=strconv.FormatFloat(newRank,'f',-1,32)
+	}
+}
+func Server(conn net.Conn) error{
+	data:=make([]byte,409600)
+	n,err:=conn.Read(data)
+	if(err==io.EOF){
+		//fmt.Println("close conn")
+		//conn.Close()
+		return err
+	}
+	servlet:=new(servlet.Servlet)
+	servlet.Conn=conn
+	protodata:= new(protos.Command)
+	proto.Unmarshal(data[0:n], protodata)
+	servlet.Command=protodata
+	//fmt.Println("receive request:  "+protodata.String())
+	//通过key的第一部分来确定分区
+	key:=protodata.GetKey()
+	servlet.PartitionKey=key
+	if(key!=""){
+		index:=strings.Index(key,".")
+		if index!=-1 {
+			servlet.PartitionKey=key[:index]
+		}
+		server,_:=c.Get(servlet.PartitionKey)
+		//fmt.Println("lookup node for key:"+cmd.PartitionKey+"->"+server)
+		if server!=hostname {
+			//fmt.Println("forward to another node!")
+			//Send(server,protodata)
+		}else{
+			requestChannel <- servlet
+		}
+	}else{
+		requestChannel <- servlet
+	}
+
+	return nil
+}
+
 func Send(server string, str string){
 	//第一次调用时，建立一个连接池
 	for destination,_ := range servers{
@@ -185,4 +275,3 @@ func Send(server string, str string){
 	}
 		
 }
-

@@ -1,0 +1,21 @@
+package protos;
+enum Type {
+	Get=0;
+	Set=1;
+	Add=2;
+	Iterate=3;
+        Flush=4;
+}
+message Command {
+        required Type type=1;
+        optional string key=2;
+	optional string value=3;
+}
+message Commands {
+	repeated Command command=1;
+}
+message Response {
+        required bool status=1;
+        optional string key=2;
+        repeated string value=3;
+}
