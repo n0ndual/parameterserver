@@ -90,7 +90,7 @@ func main(){
 	}
 	if flag.Args()[1]=="pageRank" {
 		fmt.Println("pagerank start: "+time.Now().Format("2006-01-02 15:04:05"))
-		client.PageRank()
+	//	client.PageRank()
 		fmt.Println("pagerank end: "+time.Now().Format("2006-01-02 15:04:05"))
 	}
 	if flag.Args()[1]=="test" {
