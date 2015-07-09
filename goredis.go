@@ -52,7 +52,7 @@ func main(){
 //	for k,_ :=range servers{
 //		c.Add(k)
 	//	}
-	client.ConsitentHash=consistent.New()
+	client.ConsistentHash=consistent.New()
 	client.ConsistentHash.Add("7.7.7.1")
 	client.ConsistentHash.Add("7.7.7.7")
 	conn1,_:=net.Dial("tcp","7.7.7.1")
