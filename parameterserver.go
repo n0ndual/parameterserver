@@ -56,11 +56,10 @@ func main(){
 	client.ConsistentHash.Add("7.7.7.1")
 	client.ConsistentHash.Add("7.7.7.7")
 	conn1,_:=net.Dial("tcp","7.7.7.1:7777")
-	conn2,_:=net.Dial("tcp","7.7.7.1:7777")
-	conn3,_:=net.Dial("tcp",server)
+	conn2,_:=net.Dial("tcp","7.7.7.7:7777")
 	client.Conns["7.7.7.1"]=conn1
 	client.Conns["7.7.7.7"]=conn2
-	client.Conns["localhost"]=conn3
+	client.Conns["localhost"]=client.Conns[ip]
 	fmt.Println(flag.Args())
 	if flag.Args()[1]=="server" {
 		if flag.Args()[0]=="start" {

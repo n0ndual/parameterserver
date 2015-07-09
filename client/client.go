@@ -56,6 +56,7 @@ func PageRankMap(){
 	//cache keys and nodes
 	nodesCache =make(map[string][]string)
 	countCache=make(map[string]int)
+	//fmt.Println("iterate")
 	keys=Iterate()
 	fmt.Println("keys length:")
 	fmt.Println(len(keys))
@@ -90,6 +91,7 @@ func PageRankReduce(){
 		newRank:=0.15*preRank+0.85*gradient
 		Set(k+".rank",strconv.FormatFloat(newRank,'f',-1,32))
 	}
+	fmt.Println("reduce complete")
 }
 
 
@@ -146,6 +148,7 @@ func LoadWebGraph(){
 }
 func GetLocalConnection() net.Conn{
 	conn=Conns["localhost"]
+	//fmt.Println(conn)
 	return conn
 }
 func GetConnectionFromKey(key string) net.Conn{
