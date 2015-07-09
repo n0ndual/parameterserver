@@ -1,7 +1,7 @@
 package servlet
 
 import (
-	"github.com/tigeress/goredis/protos"
+	"github.com/tigeress/parameterserver/protos"
 	"net"
 )
 type Servlet struct{

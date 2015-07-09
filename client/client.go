@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"bufio"
 	"time"
-	"github.com/tigeress/goredis/protos"
+	"github.com/tigeress/parameterserver/protos"
 	"strconv"
 	"strings"
 	"os"
@@ -48,53 +48,51 @@ func FlushBuffer(oper string){
 	writeBuffer=make(map[string]string)
 	addBuffer=make(map[string]float64)
 }
-func PageRank(){
+var nodesCache map[string][]string
+var countCache map[string]int
+var keys []string
+func PageRankMap(){
 	//conn=GetConnection("localhost:7777")
 	//cache keys and nodes
-	nodesCache :=make(map[string][]string)
-	countCache:=make(map[string]int)
-	keys:=Iterate()
+	nodesCache =make(map[string][]string)
+	countCache=make(map[string]int)
+	keys=Iterate()
 	fmt.Println("keys length:")
 	fmt.Println(len(keys))
-	for i:=0;i<2;i++{
-		//计算每个节点的rank
-		for _,key:= range keys{
-			adjs:= strings.Split(Get(key+".nodes")," ")
-			nodesCache[key]=adjs
-			countCache[key],_= strconv.Atoi(Get(key+".count"))
-		}
+	//cache graph
+	for _,key:= range keys{
+		adjs:= strings.Split(Get(key+".nodes")," ")
+		nodesCache[key]=adjs
+		countCache[key],_= strconv.Atoi(Get(key+".count"))
 	}
 	fmt.Println("cache ok")
-	for i:=0;i<2;i++{
-		for {
-			time.Sleep(100*time.Millisecond)
-			if Get("Done")=="1"{
-				return
-			}
-			ifcontinue:=Get("Flush")
-			if ifcontinue=="0"||ifcontinue==""{
-				break
-			}
-		}
-		//计算每个节点的rank
-		for _,key:= range keys{
-			if countCache[key]!=0{
-				rank,_:=strconv.ParseFloat(Get(key+".rank"),32)
-				for _,adj := range nodesCache[key]{
-					gradient:=rank/float64(countCache[key])
-					AsyncAdd(adj+".gradient",gradient)
-				}
-			}
-		}
-		FlushBuffer("Add")
-		fmt.Println("one turn compute complete")
-		//查看是否所有节点都已经计算完毕。然后每个节点都把crank=nrank。
-		//每个节点都同步完成后，再进行下一个超级步
-		Flush()
-		time.Sleep(1000*time.Millisecond)
-	}
 
+	//计算每个节点的rank
+	for _,key:= range keys{
+		if countCache[key]!=0{
+			rank,_:=strconv.ParseFloat(Get(key+".rank"),32)
+			for _,adj := range nodesCache[key]{
+				gradient:=rank/float64(countCache[key])
+				AsyncAdd(adj+".gradient",gradient)
+			}
+		}
+	}
+	FlushBuffer("Add")
+	fmt.Println("map complete")
+	//查看是否所有节点都已经计算完毕。然后每个节点都把crank=nrank。
+	//每个节点都同步完成后，再进行下一个超级步
+	//Flush()
 }
+func PageRankReduce(){
+	for _,k:=range keys{
+		preRank,_:=strconv.ParseFloat(Get(k+".rank"),32)
+		gradient,_:=strconv.ParseFloat(Get(k+".gradient"),32)
+		newRank:=0.15*preRank+0.85*gradient
+		Set(k+".rank",strconv.FormatFloat(newRank,'f',-1,32))
+	}
+}
+
+
 
 func LoadWebGraph(){
 	time.Sleep(1000*time.Millisecond)
