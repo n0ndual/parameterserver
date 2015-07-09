@@ -33,7 +33,7 @@ var requestChannel chan *servlet.Servlet
 var responseChannel chan *servlet.Servlet
 func Init(){
 	//flags
-	flag.StringVar(&ip,"ip","localhost","server ip address")
+	flag.StringVar(&ip,"ip","7.7.7.1","server ip address")
 	flag.StringVar(&port,"port",":7777","server tcp listen port")
 	flag.Parse()
 	server = ip+port
@@ -55,9 +55,9 @@ func main(){
 	client.ConsistentHash=consistent.New()
 	client.ConsistentHash.Add("7.7.7.1")
 	client.ConsistentHash.Add("7.7.7.7")
-	conn1,_:=net.Dial("tcp","7.7.7.1")
-	conn2,_:=net.Dial("tcp","7.7.7.1")
-	conn3,_:=net.Dial("tcp",ip)
+	conn1,_:=net.Dial("tcp","7.7.7.1:7777")
+	conn2,_:=net.Dial("tcp","7.7.7.1:7777")
+	conn3,_:=net.Dial("tcp",server)
 	client.Conns["7.7.7.1"]=conn1
 	client.Conns["7.7.7.7"]=conn2
 	client.Conns["localhost"]=conn3

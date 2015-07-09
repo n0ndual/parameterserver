@@ -15,7 +15,6 @@ import (
 var ConsistentHash *consistent.Consistent
 var workerNum=1
 var conn net.Conn
-var LocalConn net.Conn
 var Conns map[string]net.Conn=make(map[string]net.Conn)
 var writeBuffer map[string]string=make(map[string]string)
 var addBuffer map[string]float64=make(map[string]float64)
@@ -99,7 +98,6 @@ func PageRank(){
 
 func LoadWebGraph(){
 	time.Sleep(1000*time.Millisecond)
-	//conn=GetConnection("localhost:7777")
 	file,_:=os.Open("/Users/clive/Downloads/facebook.txt")
 	reader:=bufio.NewReader(file)
 	totalCount:=0
@@ -146,7 +144,6 @@ func LoadWebGraph(){
 		writeBuffer[k+".rank"]=strconv.FormatFloat(1/float64(totalCount),'f',-1,32)
 	} 
 	FlushBuffer("Set")
-	//conn.Close()
 	time.Sleep(1000*time.Millisecond)
 }
 func GetLocalConnection() net.Conn{
@@ -154,8 +151,15 @@ func GetLocalConnection() net.Conn{
 	return conn
 }
 func GetConnectionFromKey(key string) net.Conn{
-	server,_:=ConsistentHash.Get(key)
+	var partitionKey string=key
+	index:=strings.Index(key,".")
+	if index!=-1 {
+		partitionKey=key[:index]
+	}
+	server,_:=ConsistentHash.Get(partitionKey)
+	//fmt.Println("key server:"+key+" : "+server)
 	conn=Conns[server]
+	//fmt.Println(conn)
 	return conn
 }
 func Flush() string{
