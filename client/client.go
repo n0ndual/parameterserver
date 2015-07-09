@@ -4,30 +4,34 @@ import (
 	"fmt"
 	"bufio"
 	"time"
-	"github.com/tigeress/goredis/command"
 	"github.com/tigeress/goredis/protos"
 	"strconv"
 	"strings"
 	"os"
 	"io"
 	"github.com/golang/protobuf/proto"
+	"stathat.com/c/consistent"
 )
+var ConsistentHash *consistent.Consistent
 var workerNum=1
 var conn net.Conn
+var LocalConn net.Conn
+var Conns map[string]net.Conn=make(map[string]net.Conn)
 var writeBuffer map[string]string=make(map[string]string)
 var addBuffer map[string]float64=make(map[string]float64)
 func TestClientProto(){
 	time.Sleep(1000 * time.Millisecond)
-	conn=GetConnection("localhost:7777")
+	conn=GetLocalConnection()
 	//Set("a","1")
 	//fmt.Println(Get("a"))
 	//Add("a","1")
 	//fmt.Println(Get("a"))
 	keys:=Iterate()
-	fmt.Println(keys)
-	for _,key:= range keys{
-		fmt.Println(key+":  "+Get(key+".rank"))
-	}
+	fmt.Println("keys length")
+	fmt.Println(len(keys))
+//	for _,key:= range keys{
+//		fmt.Println(key+":  "+Get(key+".rank"))
+//	}
 	time.Sleep(1000*time.Millisecond)
 }
 
@@ -46,7 +50,7 @@ func FlushBuffer(oper string){
 	addBuffer=make(map[string]float64)
 }
 func PageRank(){
-	conn=GetConnection("localhost:7777")
+	//conn=GetConnection("localhost:7777")
 	//cache keys and nodes
 	nodesCache :=make(map[string][]string)
 	countCache:=make(map[string]int)
@@ -95,8 +99,8 @@ func PageRank(){
 
 func LoadWebGraph(){
 	time.Sleep(1000*time.Millisecond)
-	conn=GetConnection("localhost:7777")
-	file,_:=os.Open("/Users/clive/Downloads/web-Stanford.txt")
+	//conn=GetConnection("localhost:7777")
+	file,_:=os.Open("/Users/clive/Downloads/facebook.txt")
 	reader:=bufio.NewReader(file)
 	totalCount:=0
 	cache:=make(map[string]string)
@@ -108,7 +112,7 @@ func LoadWebGraph(){
 		}
 		//fmt.Println("line: "+string(line))
 		if line[0]!='#' {
-			a:=strings.Split(string(line),"\t")
+			a:=strings.Split(string(line)," ")
 			prevCountStr:=cache[a[0]+".count"]
 			var prevCount int=0
 			if prevCountStr!=""&&prevCountStr!="0"{
@@ -117,7 +121,6 @@ func LoadWebGraph(){
 			}else if prevCountStr!="0"{
 				keys=append(keys,a[0])
 				totalCount++
-				//Set(a[0]+".nodes",a[1])
 				cache[a[0]+".nodes"]=a[1]
 			}else{
 				cache[a[0]+".nodes"]=a[1]
@@ -132,7 +135,7 @@ func LoadWebGraph(){
 				totalCount++
 			}
 			cache[a[1]+".count"]=strconv.Itoa(prevCount1)
-			//Set(a[0]+".count",strconv.Itoa(prevCount+1))
+
 			cache[a[0]+".count"]=strconv.Itoa(prevCount+1)
 		}
 	}
@@ -146,15 +149,17 @@ func LoadWebGraph(){
 	//conn.Close()
 	time.Sleep(1000*time.Millisecond)
 }
-
-func GetConnection(server string) net.Conn{
-	conn,err :=net.Dial("tcp",server)
-	if err!=nil {
-		fmt.Println(err)
-	}
+func GetLocalConnection() net.Conn{
+	conn=Conns["localhost"]
+	return conn
+}
+func GetConnectionFromKey(key string) net.Conn{
+	server,_:=ConsistentHash.Get(key)
+	conn=Conns[server]
 	return conn
 }
 func Flush() string{
+	GetConnectionFromKey("Flush")
 	iType:=protos.Type(protos.Type_value["Flush"])
 	command:=&protos.Command {
 		Type:&iType, 
@@ -170,6 +175,7 @@ func Flush() string{
 	return response.String()
 }
 func Get(key string) string{
+	GetConnectionFromKey(key)
 	iType:=protos.Type(protos.Type_value["Get"])
 	command:=&protos.Command {
 		Type:&iType, 
@@ -193,6 +199,7 @@ func Get(key string) string{
 }
 
 func Set(key string,value string) string{
+	GetConnectionFromKey(key)
 	iType:=protos.Type(protos.Type_value["Set"])
 	command:=&protos.Command {
 		Type:&iType, 
@@ -210,9 +217,7 @@ func Set(key string,value string) string{
 	//fmt.Println("receive response:  "+response.String())
 	return response.String()
 }
-func SendCommand(conn net.Conn,cmd command.Command) string{
-	return ""
-}
+
 func AsyncAdd(key string, value float64) {
 	if addBuffer[key]!=0{
 		sum:=value+addBuffer[key]
@@ -222,6 +227,7 @@ func AsyncAdd(key string, value float64) {
 	}
 }
 func Add(key string,value string) string{
+	GetConnectionFromKey(key)
 	iType:=protos.Type(protos.Type_value["Add"])
 	command:=&protos.Command {
 		Type:&iType, 
@@ -240,6 +246,7 @@ func Add(key string,value string) string{
 	return response.String()
 }
 func Iterate() []string{
+	GetLocalConnection()
 	iType:=protos.Type(protos.Type_value["Iterate"])
 	command:=&protos.Command {
 		Type:&iType, 
@@ -247,11 +254,20 @@ func Iterate() []string{
 	commandBytes,_:=proto.Marshal(command)
 	conn.Write(commandBytes)
 	//Create a data buffer of type byte slice with capacity of 4096
-	data := make([]byte, 409600)
+	var buf []byte
+	data := make([]byte, 4096)
 	n,_:= conn.Read(data)
-	println("iterate read bytes length:"+strconv.Itoa(n))
+	buf=append(buf,data[:n]...)
+	for ;n==4096; {
+		n,_=conn.Read(data)
+		buf=append(buf,data[:n]...)
+	}
+	//println("iterate read bytes length:"+strconv.Itoa(n))
+	//var buf bytes.Buffer
+	//io.Copy(&buf, conn)
+	//fmt.Println("total size:", buf.Len())
 	response:= new(protos.Response)
-	proto.Unmarshal(data[0:n], response)
+	proto.Unmarshal(buf, response)
 	//fmt.Println("receive response:  "+response.String())
 	return response.Value
 }

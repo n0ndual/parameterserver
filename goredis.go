@@ -43,15 +43,24 @@ func Init(){
 }
 func main(){
 	Init()
-	hostname,_ =os.Hostname()
-	servers=make(map[string]string)
-	servers["clive"]=ip
-//	servers["clive0"]="7.7.7.7"
-//	servers["clive1"]="7.7.7.8"
+//	hostname,_ =os.Hostname()
+//	servers=make(map[string]string)
+//	servers["clive"]=ip
+//	servers["clive0"]="7.7.7.1"
+//	servers["clive1"]="7.7.7.7"
 //	servers["clive2"]="7.7.7.9"
-	for k,_ :=range servers{
-		c.Add(k)
-	}
+//	for k,_ :=range servers{
+//		c.Add(k)
+	//	}
+	client.ConsitentHash=consistent.New()
+	client.ConsistentHash.Add("7.7.7.1")
+	client.ConsistentHash.Add("7.7.7.7")
+	conn1,_:=net.Dial("tcp","7.7.7.1")
+	conn2,_:=net.Dial("tcp","7.7.7.1")
+	conn3,_:=net.Dial("tcp",ip)
+	client.Conns["7.7.7.1"]=conn1
+	client.Conns["7.7.7.7"]=conn2
+	client.Conns["localhost"]=conn3
 	fmt.Println(flag.Args())
 	if flag.Args()[1]=="server" {
 		if flag.Args()[0]=="start" {
@@ -222,8 +231,16 @@ func Accumulator(){
 	}
 }
 func Server(conn net.Conn) error{
-	data:=make([]byte,409600)
-	n,err:=conn.Read(data)
+	var buf []byte
+	data := make([]byte, 4096)
+	n,err:= conn.Read(data)
+	buf=append(buf,data[:n]...)
+	for ;n==4096; {
+		n,err=conn.Read(data)
+		buf=append(buf,data[:n]...)
+	}
+//	data:=make([]byte,4096)
+//	n,err:=conn.Read(data)
 	if(err==io.EOF){
 		//fmt.Println("close conn")
 		//conn.Close()
@@ -232,7 +249,7 @@ func Server(conn net.Conn) error{
 	servlet:=new(servlet.Servlet)
 	servlet.Conn=conn
 	protodata:= new(protos.Command)
-	proto.Unmarshal(data[0:n], protodata)
+	proto.Unmarshal(buf, protodata)
 	servlet.Command=protodata
 	//fmt.Println("receive request:  "+protodata.String())
 	//通过key的第一部分来确定分区
@@ -246,6 +263,7 @@ func Server(conn net.Conn) error{
 		server,_:=c.Get(servlet.PartitionKey)
 		//fmt.Println("lookup node for key:"+cmd.PartitionKey+"->"+server)
 		if server!=hostname {
+			fmt.Println("should never happen")
 			//fmt.Println("forward to another node!")
 			//Send(server,protodata)
 		}else{
