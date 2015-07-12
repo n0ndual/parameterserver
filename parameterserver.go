@@ -6,16 +6,13 @@ import (
 	"fmt"
 	"time"
 	"stathat.com/c/consistent"
-	"github.com/tigeress/parameterserver/command"
-	"os"
-	"github.com/tigeress/parameterserver/client"
+	"github.com/scorpionis/parameterserver/client"
 	"github.com/golang/protobuf/proto"
-	"github.com/tigeress/parameterserver/protos"
+	"github.com/scorpionis/parameterserver/protos"
 	"flag"
-	"bufio"
 	"strings"
 	"strconv"
-	"github.com/tigeress/parameterserver/servlet"
+	"github.com/scorpionis/parameterserver/servlet"
 )
 
 //把自己注册到dht中
@@ -68,17 +65,7 @@ func main(){
 			//quit <- 0
 		}
 	}
-	if flag.Args()[1]=="client" {
-		fmt.Print("life is short, i use go -.-\n>")
-		conn,_ :=net.Dial("tcp",server)
-		for {
-			line,_,_:=bufio.NewReader(os.Stdin).ReadLine()
-			conn.Write([]byte(command.EncodeRedisProtocol(command.DecodeText(string(line)))))
-			response,_:=bufio.NewReader(conn).ReadBytes('\n')
-			fmt.Println(response)
-			fmt.Print(">")
-		}
-	}
+
 	//client.TestClient()
 	//load Graph, why so slow
 	if flag.Args()[1]=="loadGraph" {

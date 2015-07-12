@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"bufio"
 	"time"
-	"github.com/tigeress/parameterserver/protos"
+	"github.com/scorpionis/parameterserver/protos"
 	"strconv"
 	"strings"
 	"os"
